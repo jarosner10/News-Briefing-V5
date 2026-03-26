@@ -88,16 +88,19 @@ body{background:var(--bg);color:var(--text);font-family:'Lato',sans-serif;font-w
 .src-chips{display:flex;gap:5px;flex-wrap:wrap;}
 .chip{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.8px;padding:2px 7px;border-radius:3px;text-transform:uppercase;border:1px solid;}
 
-.story{margin-bottom:38px;padding-bottom:38px;border-bottom:1px solid var(--border);animation:fadeUp .4s ease both;}
+.story{margin-bottom:0;padding:36px 0 36px;border-bottom:1px solid var(--border);animation:fadeUp .4s ease both;position:relative;}
+.story:last-of-type{border-bottom:none;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
-.story-topic{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--accent);margin-bottom:9px;display:flex;align-items:center;gap:11px;}
+.story-number{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--faint);letter-spacing:1px;margin-bottom:6px;}
+.story-topic{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--accent);margin-bottom:10px;display:flex;align-items:center;gap:11px;}
 .story-topic::after{content:'';flex:1;height:1px;background:var(--faint);}
-.story-hed{font-family:'Cormorant Garamond',serif;font-size:clamp(21px,3vw,29px);font-weight:600;line-height:1.2;color:var(--text);margin-bottom:14px;}
-.story-body{font-size:14.5px;line-height:1.85;color:#b0ac9e;font-weight:300;}
-.story-body p{margin-bottom:11px;}
+.story-hed{font-family:'Cormorant Garamond',serif;font-size:clamp(22px,3.5vw,32px);font-weight:600;line-height:1.18;color:var(--text);margin-bottom:18px;letter-spacing:-.3px;}
+.story-body{font-size:14.5px;line-height:1.9;color:#a8a49a;font-weight:300;}
+.story-body p{margin-bottom:14px;}
+.story-body p:first-child{color:#c4c0b4;font-size:15px;}
 .story-body p:last-child{margin-bottom:0;}
-.story-srcs{display:flex;gap:5px;margin-top:13px;flex-wrap:wrap;}
-.story-src{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.8px;padding:2px 7px;border-radius:3px;border:1px solid var(--border-h);color:var(--muted);text-transform:uppercase;}
+.story-srcs{display:flex;gap:5px;margin-top:16px;flex-wrap:wrap;}
+.story-src{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.8px;padding:3px 8px;border-radius:3px;border:1px solid var(--border-h);color:var(--muted);text-transform:uppercase;}
 
 .closing{border-left:2px solid var(--gold);padding:13px 18px;background:color-mix(in srgb,var(--gold) 5%,transparent);border-radius:0 5px 5px 0;animation:fadeUp .4s ease both;}
 .closing-lbl{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--gold);opacity:.75;margin-bottom:7px;}
@@ -330,40 +333,118 @@ function render(text,srcs){
   briefText='';
   var area=document.getElementById('contentArea');
   area.innerHTML='';
-  var meta=document.createElement('div'); meta.className='content';
+  var wrap=document.createElement('div'); wrap.className='content';
+
+  // Meta header
   var chips=srcs.map(function(s){return '<span class="chip" style="color:'+lc(s)+';border-color:'+lc(s)+'44">'+s+'</span>';}).join('');
-  var topHtml='<div class="brief-meta"><span class="brief-date">'+fmtDate()+'</span><div class="src-chips">'+chips+'</div></div>';
+  wrap.innerHTML='<div class="brief-meta"><span class="brief-date">'+fmtDate()+'</span><div class="src-chips">'+chips+'</div></div>';
 
-  var sReg=/SECTION:\s*(.+)\nHEADLINE:\s*(.+)\nBODY:\s*([\s\S]+?)SOURCES:\s*(.+?)(?=\nSECTION:|\nCLOSING:|$)/g;
-  var sections=[],m;
-  while((m=sReg.exec(text))!==null) sections.push({topic:m[1].trim(),hed:m[2].trim(),body:m[3].trim(),srcs:m[4].trim()});
+  // ── ROBUST PARSER ──────────────────────────────────────────────────────
+  // Normalize line endings, strip any bold/italic markdown artifacts
+  var t=text.replace(/\r\n/g,'\n').replace(/\*\*/g,'').replace(/\*/g,'');
 
-  var storiesHtml='';
+  // Try structured parse first (handles both \n and no-newline separators)
+  var sections=[];
+  var sReg=/SECTION:\s*([^\n]+)\s*\nHEADLINE:\s*([^\n]+)\s*\nBODY:\s*([\s\S]+?)(?=\nSOURCES:)[\s\S]*?SOURCES:\s*([^\n]+)/gm;
+  var m;
+  while((m=sReg.exec(t))!==null){
+    sections.push({topic:m[1].trim(),hed:m[2].trim(),body:m[3].trim(),srcs:m[4].trim()});
+  }
+
+  // Fallback: if regex got nothing, try splitting on "SECTION:" keyword
   if(sections.length===0){
-    briefText=text;
-    storiesHtml='<div class="story"><div class="story-body"><p>'+text.replace(/\n\n/g,'</p><p>').replace(/\n/g,' ')+'</p></div></div>';
+    var chunks=t.split(/(?=SECTION:)/);
+    chunks.forEach(function(chunk){
+      if(!chunk.trim()) return;
+      var tp=chunk.match(/SECTION:\s*([^\n]+)/);
+      var hl=chunk.match(/HEADLINE:\s*([^\n]+)/);
+      var bd=chunk.match(/BODY:\s*([\s\S]+?)(?=SOURCES:|$)/);
+      var sr=chunk.match(/SOURCES:\s*([^\n]+)/);
+      if(tp&&hl&&bd){
+        sections.push({
+          topic:tp[1].trim(),
+          hed:hl[1].trim(),
+          body:bd[1].trim(),
+          srcs:sr?sr[1].trim():srcs.join(', ')
+        });
+      }
+    });
+  }
+
+  // ── RENDER SECTIONS ────────────────────────────────────────────────────
+  if(sections.length===0){
+    // Last-resort fallback: split into readable paragraphs with styled headings
+    var paras=t.split('\n\n').filter(function(p){return p.trim().length>10;});
+    var html='';
+    paras.forEach(function(p,i){
+      p=p.trim();
+      // Detect lines that look like label: value headers
+      if(/^(SECTION|HEADLINE|BODY|SOURCES|CLOSING):/.test(p)){
+        var label=p.match(/^([A-Z]+):/)[1];
+        var content=p.replace(/^[A-Z]+:\s*/,'');
+        if(label==='SECTION'){
+          html+='<div class="story-topic" style="animation-delay:'+(i*0.05)+'s">'+content+'</div>';
+        } else if(label==='HEADLINE'){
+          html+='<div class="story-hed" style="animation:fadeUp .4s ease both;animation-delay:'+(i*0.05)+'s">'+content+'</div>';
+        } else if(label==='CLOSING'){
+          html+='<div class="closing"><div class="closing-lbl">Editor\'s Note</div><div class="closing-txt">'+content+'</div></div>';
+          briefText+=content+' ';
+        } else if(label==='SOURCES'){
+          var pills=content.split(',').map(function(x){return '<span class="story-src">'+x.trim()+'</span>';}).join('');
+          html+='<div class="story-srcs" style="margin-bottom:32px;padding-bottom:32px;border-bottom:1px solid var(--border)">'+pills+'</div>';
+        } else {
+          html+='<div class="story-body" style="animation:fadeUp .4s ease both;animation-delay:'+(i*0.05)+'s"><p>'+content+'</p></div>';
+          briefText+=content+' ';
+        }
+      } else {
+        // Plain paragraph — wrap as body text
+        var isFirst=(i===0);
+        if(isFirst){
+          html+='<p style="font-family:\'JetBrains Mono\',monospace;font-size:10px;letter-spacing:1px;color:var(--muted);margin-bottom:20px;">'+p+'</p>';
+        } else {
+          html+='<div class="story-body" style="animation:fadeUp .4s ease both;animation-delay:'+(i*0.05)+'s;margin-bottom:20px"><p>'+p+'</p></div>';
+          briefText+=p+' ';
+        }
+      }
+    });
+    wrap.innerHTML+=html;
   } else {
+    // Clean structured render
     sections.forEach(function(s,i){
       var srcList=s.srcs.split(',').map(function(x){return x.trim();});
       var srcPills=srcList.map(function(x){return '<span class="story-src">'+x+'</span>';}).join('');
-      var bodyHtml=s.body.split('\n\n').filter(function(p){return p.trim();}).map(function(p){return '<p>'+p.trim()+'</p>';}).join('');
-      storiesHtml+='<div class="story" style="animation-delay:'+(i*0.07)+'s">'
+      // Split body into paragraphs — handle both \n\n and P1/P2/P3 labels
+      var bodyClean=s.body
+        .replace(/P1\s*[\u2014\-]\s*/gi,'')
+        .replace(/P2\s*[\u2014\-]\s*/gi,'')
+        .replace(/P3\s*[\u2014\-]\s*/gi,'');
+      var bodyParas=bodyClean.split(/\n\n|\n(?=P[123][\s\u2014\-])/).filter(function(p){return p.trim().length>10;});
+      var bodyHtml=bodyParas.map(function(p){return '<p>'+p.trim()+'</p>';}).join('');
+      if(!bodyHtml) bodyHtml='<p>'+bodyClean.trim()+'</p>';
+
+      wrap.innerHTML+='<div class="story" style="animation-delay:'+(i*0.08)+'s">'
+        +'<div class="story-number">'+String(i+1).padStart(2,'0')+'</div>'
         +'<div class="story-topic">'+s.topic+'</div>'
         +'<div class="story-hed">'+s.hed+'</div>'
         +'<div class="story-body">'+bodyHtml+'</div>'
-        +'<div class="story-srcs">'+srcPills+'</div></div>';
-      briefText+=s.topic+'. '+s.hed+'. '+s.body+'\n\n';
+        +'<div class="story-srcs">'+srcPills+'</div>'
+        +'</div>';
+      briefText+=s.topic+'. '+s.hed+'. '+bodyClean+'\n\n';
     });
-    var cm=text.match(/CLOSING:\s*([\s\S]+?)$/);
+
+    // Closing block
+    var cm=t.match(/CLOSING:\s*([\s\S]+?)(\n\n|$)/);
+    if(!cm) cm=t.match(/CLOSING:\s*([\s\S]+?)$/);
     if(cm){
-      storiesHtml+='<div class="closing" style="animation-delay:'+(sections.length*0.07)+'s">'
+      var closingTxt=cm[1].trim().replace(/P[123]\s*[\u2014\-]\s*/gi,'');
+      wrap.innerHTML+='<div class="closing" style="animation-delay:'+(sections.length*0.08)+'s">'
         +'<div class="closing-lbl">Editor\'s Note</div>'
-        +'<div class="closing-txt">'+cm[1].trim()+'</div></div>';
-      briefText+=cm[1].trim();
+        +'<div class="closing-txt">'+closingTxt+'</div></div>';
+      briefText+=closingTxt;
     }
   }
-  meta.innerHTML=topHtml+storiesHtml;
-  area.appendChild(meta);
+
+  area.appendChild(wrap);
 }
 
 function toggleSpeak(){
